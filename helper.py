@@ -10,7 +10,8 @@ import tensorflow as tf
 from glob import glob
 from urllib.request import urlretrieve
 from tqdm import tqdm
-
+import cv2
+image_shape = (576, 160)
 
 class DLProgress(tqdm):
     last_block = 0
@@ -112,9 +113,8 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
     for image_file in glob(os.path.join(data_folder, 'image_2', '*.png')):
         image = scipy.misc.imresize(scipy.misc.imread(image_file), image_shape)
 
-        im_softmax = sess.run(
-            [tf.nn.softmax(logits)],
-            {keep_prob: 1.0, image_pl: [image]})
+        im_softmax = sess.run([tf.nn.softmax(logits)], {keep_prob: 1.0, image_pl: [image]})
+
         im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
         segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
         mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
@@ -125,16 +125,62 @@ def gen_test_output(sess, logits, keep_prob, image_pl, data_folder, image_shape)
         yield os.path.basename(image_file), np.array(street_im)
 
 
-def save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image):
-    # Make folder for current run
-    output_dir = os.path.join(runs_dir, str(time.time()))
-    if os.path.exists(output_dir):
-        shutil.rmtree(output_dir)
-    os.makedirs(output_dir)
+# def save_inference_samples(runs_dir, data_dir, sess, image_shape, logits, keep_prob, input_image):
+#     # Make folder for current run
+#     output_dir = os.path.join(runs_dir, str(time.time()))
+#     if os.path.exists(output_dir):
+#         shutil.rmtree(output_dir)
+#     os.makedirs(output_dir)
 
+#     # Run NN on test images and save them to HD
+#     print('Training Finished. Saving test images to: {}'.format(output_dir))
+#     image_outputs = gen_test_output(sess, logits, keep_prob, input_image, os.path.join(data_dir, 'data_road/testing'), image_shape)
+
+#     for name, image in image_outputs:
+#         scipy.misc.imsave(os.path.join(output_dir, name), image)
+
+
+def save_inference_samples(sess, image_shape, logits, keep_prob, image_pl, imagein):
     # Run NN on test images and save them to HD
-    print('Training Finished. Saving test images to: {}'.format(output_dir))
-    image_outputs = gen_test_output(
-        sess, logits, keep_prob, input_image, os.path.join(data_dir, 'data_road/testing'), image_shape)
-    for name, image in image_outputs:
-        scipy.misc.imsave(os.path.join(output_dir, name), image)
+    # print('Training Finished. Saving test images to: {}'.format(output_dir))
+    image = scipy.misc.imresize(imagein, image_shape)
+
+    im_softmax = sess.run([tf.nn.softmax(logits)], {keep_prob: 1.0, image_pl: [image]})
+
+    im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
+    segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1)
+    mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
+    mask = scipy.misc.toimage(mask, mode="RGBA")
+    street_im = scipy.misc.toimage(image)
+    street_im.paste(mask, box=None, mask=mask)
+    image_outputs = np.array(street_im)
+
+    return image_outputs
+
+
+def video_test(sess, logits, keep_prob, image_pl):
+
+    cap = cv2.VideoCapture('/home/shilpaj/test.mp4')
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        
+        if ret == True:
+            global image_shape
+            frame = frame[200:480, 0:844]
+            image = cv2.resize(frame, image_shape)
+
+            im_softmax = sess.run([tf.nn.softmax(logits)], {keep_prob: 1.0, image_pl: [image]})
+
+            im_softmax = im_softmax[0][:, 1].reshape(image_shape[0], image_shape[1])
+            segmentation = (im_softmax > 0.5).reshape(image_shape[0], image_shape[1], 1) #0.5
+            mask = np.dot(segmentation, np.array([[0, 255, 0, 127]]))
+            mask = scipy.misc.toimage(mask, mode="RGBA")
+            street_im = scipy.misc.toimage(image)
+            street_im.paste(mask, box=None, mask=mask)
+            street_im = np.array(street_im)
+
+            cv2.imshow('Win', street_im)
+            cv2.waitKey(1)
+        else:
+            break
